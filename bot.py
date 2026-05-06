@@ -143,9 +143,8 @@ class StreamingBuffer(io.RawIOBase):
 def stream_upload_to_alist(local_path_or_stream, target_filename, webdav_url,
                            progress_callback=None, is_stream=False):
     """流式上传。is_stream=True 时 local_path_or_stream 是 StreamingBuffer"""
-    date_folder = datetime.now().strftime("%Y-%m-%d")
     base_url = webdav_url.rstrip('/')
-    target_url = f"{base_url}/{date_folder}/{urllib.parse.quote(target_filename)}"
+    target_url = f"{base_url}/{urllib.parse.quote(target_filename)}"
 
     last_error = None
     for attempt in range(MAX_RETRIES):
@@ -221,7 +220,7 @@ async def do_stream_upload(user_id, context, msg, filename, file_size, file_type
     """尝试流式上传，失败则回退到磁盘模式"""
     webdav_url, _ = get_webdav_url(user_id)
     type_folder = get_type_folder(file_type)
-    upload_webdav = webdav_url
+    upload_webdav = webdav_url.rstrip('/') + f'/{type_folder}/'
     if mode == "direct":
         upload_webdav = webdav_url.rstrip('/') + f'/telegram/{type_folder}/'
 
@@ -263,6 +262,7 @@ async def do_stream_upload(user_id, context, msg, filename, file_size, file_type
             ).result(timeout=60)
 
             local_path = new_file.file_path
+
             if os.path.exists(local_path):
                 # 本地文件模式：从磁盘流式读取
                 with open(local_path, 'rb') as f:
@@ -325,7 +325,7 @@ async def do_disk_upload(user_id, context, msg, filename, file_size, file_type, 
     """传统磁盘模式：先下载到本地，再上传"""
     webdav_url, _ = get_webdav_url(user_id)
     type_folder = get_type_folder(file_type)
-    upload_webdav = webdav_url
+    upload_webdav = webdav_url.rstrip('/') + f'/{type_folder}/'
     if mode == "direct":
         upload_webdav = webdav_url.rstrip('/') + f'/telegram/{type_folder}/'
 
@@ -533,12 +533,12 @@ async def _background_upload(context, query, file_info, file_id, file_size, file
         elapsed = time.time() - start_time
 
         if resp and resp.status_code in [200, 201, 204]:
-            if mode == "direct":
-                path_display = f"telegram/{type_folder}/{datetime.now().strftime('%Y-%m-%d')}/"
-            else:
-                path_display = f"{datetime.now().strftime('%Y-%m-%d')}/"
-
             mode_tag = "⚡流式" if upload_mode == "stream" else "💾磁盘"
+            if mode == "direct":
+                path_display = f"telegram/{type_folder}/"
+            else:
+                path_display = f"{type_folder}/"
+
             await msg.edit_text(
                 f"✅ 上传完成!\n"
                 f"📄 {filename}\n"
@@ -587,8 +587,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔄 **失败重试：** {MAX_RETRIES} 次\n\n"
         f"📤 **当前模式：** {get_mode_label(mode)}\n"
         f"🗑️ **自动删除：** {autodel}\n\n"
-        "📁 **混淆路径：** PrivateVideo/YYYY-MM-DD/\n"
-        "📁 **直传路径：** OneDrive/telegram/{类型}/YYYY-MM-DD/\n\n"
+        "📁 **混淆路径：** PrivateVideo/{类型}/\n"
+        "📁 **直传路径：** OneDrive/telegram/{类型}/\n\n"
         "命令：\n"
         "/start - 显示帮助\n"
         "/autodel - 开关自动删除消息\n"
