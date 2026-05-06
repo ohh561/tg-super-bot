@@ -429,7 +429,7 @@ def check_alist():
 if __name__ == '__main__':
     check_alist()
     app = ApplicationBuilder().token(BOT_TOKEN).base_url(API_SERVER_URL) \
-        .read_timeout(300).write_timeout(60).connect_timeout(30).build()
+        .read_timeout(3600).write_timeout(300).connect_timeout(60).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("autodel", cmd_autodel))
     app.add_handler(CommandHandler("ping", cmd_ping))
