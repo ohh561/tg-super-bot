@@ -4,6 +4,6 @@ WORKDIR /app
 
 COPY bot.py .
 
-RUN pip install --no-cache-dir python-telegram-bot[job-queue] requests
+RUN pip install --no-cache-dir python-telegram-bot[job-queue] aiohttp
 
 CMD ["python", "bot.py"]

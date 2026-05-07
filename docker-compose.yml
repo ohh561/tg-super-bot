@@ -10,8 +10,8 @@ services:
       TELEGRAM_LOCAL: "true"
     volumes:
       - telegram-bot-api-data:/var/lib/telegram-bot-api
-    ports:
-      - "8081:8081"
+    networks:
+      - default
 
   # TG Super Bot
   tg-super-bot:
@@ -32,6 +32,7 @@ services:
       - telegram-bot-api
     networks:
       - default
+      - ubuntu_default
 
 volumes:
   telegram-bot-api-data:
@@ -39,3 +40,5 @@ volumes:
 networks:
   default:
     driver: bridge
+  ubuntu_default:
+    external: true
