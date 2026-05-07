@@ -38,6 +38,7 @@ user_autodel = {}        # user_id -> bool
 user_folder = {}         # user_id -> selected folder path (for direct mode)
 pending_files = {}       # msg_id -> file_info
 cancel_flags = {}        # task_id -> bool
+failed_files = {}        # retry_id -> {local_path, filename, file_type, type_folder, mode, user_id, ts}
 
 # AList token cache
 alist_token = None
@@ -45,6 +46,19 @@ alist_token_time = 0
 
 # 文件夹浏览状态
 folder_browse = {}       # user_id -> {"path": "/", "page": 1}
+
+
+def _cleanup_failed_files():
+    """清理超过 1 小时的失败文件"""
+    now = time.time()
+    expired = [k for k, v in failed_files.items() if now - v["ts"] > 3600]
+    for k in expired:
+        info = failed_files.pop(k)
+        try:
+            if os.path.exists(info["local_path"]):
+                os.remove(info["local_path"])
+        except Exception:
+            pass
 
 
 # ============================================================
@@ -434,7 +448,24 @@ async def _background_upload(context, query, file_info, file_id, file_size, file
                     except Exception as e:
                         logger.warning(f"Auto-delete failed: {e}")
             else:
-                await msg.edit_text(f"❌ 上传失败\n📄 {filename}\n原因: {result}")
+                # 上传失败，保留文件供重试
+                retry_id = f"retry_{user_id}_{int(time.time())}"
+                failed_files[retry_id] = {
+                    "local_path": local_path,
+                    "filename": filename,
+                    "file_type": file_type,
+                    "type_folder": type_folder,
+                    "mode": mode,
+                    "user_id": user_id,
+                    "upload_webdav": upload_webdav,
+                    "ts": time.time(),
+                }
+                local_path = None  # 阻止 finally 删除文件
+                keyboard = [[InlineKeyboardButton("🔄 重试上传", callback_data=f"retry:{retry_id}")]]
+                await msg.edit_text(
+                    f"❌ 上传失败\n📄 {filename}\n原因: {result}\n\n文件已保留，点下方按钮重试",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
 
         except Exception as e:
             logger.error(f"Error: {e}")
@@ -448,6 +479,8 @@ async def _background_upload(context, query, file_info, file_id, file_size, file
                     pass
             # 上传结束后清理临时文件
             await cleanup_temp_files()
+            # 清理超过 1 小时的失败文件
+            _cleanup_failed_files()
 
 
 # ============================================================
@@ -494,6 +527,109 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📄 **{filename}**\n📏 {format_size(file_size)}\n📁 {type_folder}{dest_display}\n\n选择上传方式：",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+
+async def callback_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理重试按钮"""
+    query = update.callback_query
+    if query.from_user.id != ALLOWED_USER_ID:
+        await query.answer("无权限")
+        return
+
+    retry_id = query.data.replace("retry:", "")
+    info = failed_files.pop(retry_id, None)
+    if not info:
+        await query.answer("文件已过期，请重新发送")
+        return
+
+    await query.answer()
+    local_path = info["local_path"]
+    filename = info["filename"]
+    file_type = info["file_type"]
+    type_folder = info["type_folder"]
+    mode = info["mode"]
+    upload_webdav = info["upload_webdav"]
+    user_id = info["user_id"]
+
+    if not os.path.exists(local_path):
+        await query.edit_message_text(f"❌ 文件已丢失，请重新发送")
+        return
+
+    msg = await query.edit_message_text(
+        f"🔄 重新上传中...\n📄 {filename}\n📤 {get_mode_label(mode)}"
+    )
+
+    async with upload_semaphore:
+        start_time = time.time()
+        last_update = {"time": 0, "pct": 0}
+        loop = asyncio.get_event_loop()
+
+        def upload_progress_cb(pct, loaded, total):
+            now = time.time()
+            pct_diff = pct - last_update["pct"]
+            time_diff = now - last_update["time"]
+            if time_diff >= 5 and pct_diff >= 3:
+                last_update["time"] = now
+                last_update["pct"] = pct
+                try:
+                    bar = make_progress_bar(pct)
+                    asyncio.run_coroutine_threadsafe(
+                        msg.edit_text(
+                            f"🚀 重新上传中...\n📄 {filename}\n"
+                            f"📏 {format_size(loaded)} / {format_size(total)}\n"
+                            f"📤 {get_mode_label(mode)}\n{bar}"
+                        ), loop
+                    )
+                except Exception:
+                    pass
+
+        try:
+            success, result = await upload_file_async(local_path, upload_webdav, upload_progress_cb)
+            elapsed = time.time() - start_time
+
+            if success:
+                actual_size = os.path.getsize(local_path)
+                await msg.edit_text(
+                    f"✅ 上传完成!\n📄 {filename}\n📏 {format_size(actual_size)}\n"
+                    f"📂 {type_folder}/\n📤 {get_mode_label(mode)}\n⏱️ {elapsed:.0f}秒"
+                )
+                # 清理本地文件
+                try:
+                    os.remove(local_path)
+                except Exception:
+                    pass
+                # 自动删除
+                if user_autodel.get(user_id, False):
+                    try:
+                        await asyncio.sleep(3)
+                        await msg.delete()
+                    except Exception:
+                        pass
+            else:
+                # 再次失败，放回去
+                retry_id2 = f"retry_{user_id}_{int(time.time())}"
+                failed_files[retry_id2] = {
+                    "local_path": local_path,
+                    "filename": filename,
+                    "file_type": file_type,
+                    "type_folder": type_folder,
+                    "mode": mode,
+                    "user_id": user_id,
+                    "upload_webdav": upload_webdav,
+                    "ts": time.time(),
+                }
+                keyboard = [[InlineKeyboardButton("🔄 再次重试", callback_data=f"retry:{retry_id2}")]]
+                await msg.edit_text(
+                    f"❌ 重试失败\n📄 {filename}\n原因: {result}\n\n点下方按钮再次重试",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+        except Exception as e:
+            logger.error(f"Retry error: {e}")
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass
+            await msg.edit_text(f"❌ 重试出错: {str(e)[:200]}")
 
 
 async def callback_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -546,6 +682,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/autodel - 开关自动删除消息\n"
         "/cancel - 取消当前上传\n"
         "/status - 检查连接状态\n"
+        "/retry - 查看待重试文件\n"
         f"\n📂 当前上传路径: {current_folder}"
     )
 
@@ -556,6 +693,23 @@ async def cmd_autodel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_autodel[uid] = not user_autodel.get(uid, False)
     status = "✅ 已开启" if user_autodel[uid] else "❌ 已关闭"
     await update.message.reply_text(f"🗑️ 自动删除消息：{status}")
+
+async def cmd_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ALLOWED_USER_ID:
+        return
+    user_files = {k: v for k, v in failed_files.items() if v["user_id"] == update.effective_user.id}
+    if not user_files:
+        await update.message.reply_text("没有待重试的文件")
+        return
+    keyboard = []
+    for retry_id, info in user_files.items():
+        keyboard.append([InlineKeyboardButton(
+            f"🔄 {info['filename']}", callback_data=f"retry:{retry_id}"
+        )])
+    await update.message.reply_text(
+        f"📂 待重试文件 ({len(user_files)} 个)：",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_USER_ID:
@@ -679,8 +833,10 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("autodel", cmd_autodel))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("status", cmd_ping))
+    app.add_handler(CommandHandler("retry", cmd_retry))
     app.add_handler(CallbackQueryHandler(callback_folder, pattern="^folder"))
     app.add_handler(CallbackQueryHandler(callback_upload, pattern="^upload_"))
+    app.add_handler(CallbackQueryHandler(callback_retry, pattern="^retry:"))
     app.add_handler(MessageHandler(
         filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO,
         handle_file
@@ -695,6 +851,7 @@ if __name__ == '__main__':
             BotCommand("autodel", "开关自动删除消息"),
             BotCommand("cancel", "取消当前上传"),
             BotCommand("status", "检查连接状态"),
+            BotCommand("retry", "查看待重试文件"),
         ])
     app.post_init = post_init
 
