@@ -79,10 +79,10 @@ OneDrive/telegram/
 | 命令 | 说明 |
 |------|------|
 | `/start` | 显示帮助 |
-| `/folder` | 选择上传文件夹（浏览 AList 目录） |
-| `/autodel` | 开关自动删除消息 |
-| `/cancel` | 取消当前上传 |
-| `/ping` | 检查连接状态 |
+| `/wenjianjia` | 选择上传文件夹（浏览 AList 目录） |
+| `/zidongshanchu` | 开关自动删除消息 |
+| `/quxiao` | 取消当前上传 |
+| `/zhuangtai` | 检查连接状态 |
 
 ## 🔧 自定义
 

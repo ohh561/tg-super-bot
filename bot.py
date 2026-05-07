@@ -446,6 +446,8 @@ async def _background_upload(context, query, file_info, file_id, file_size, file
                     os.remove(local_path)
                 except Exception:
                     pass
+            # 上传结束后清理临时文件
+            await cleanup_temp_files()
 
 
 # ============================================================
@@ -540,10 +542,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "发送文件即可上传到 AList\n\n"
         "命令：\n"
         "/start - 显示帮助\n"
-        "/folder - 选择上传文件夹\n"
-        "/autodel - 开关自动删除消息\n"
-        "/cancel - 取消当前上传\n"
-        "/ping - 检查连接状态\n"
+        "/wenjianjia - 选择上传文件夹\n"
+        "/zidongshanchu - 开关自动删除消息\n"
+        "/quxiao - 取消当前上传\n"
+        "/zhuangtai - 检查连接状态\n"
         f"\n📂 当前上传路径: {current_folder}"
     )
 
@@ -605,9 +607,8 @@ async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #  定时清理
 # ============================================================
 
-async def cleanup_temp_files(context):
-    """清理过期临时文件和 pending_files"""
-    # 清理 telegram-bot-api 临时文件
+async def cleanup_temp_files():
+    """清理 telegram-bot-api 临时文件"""
     base = "/var/lib/telegram-bot-api"
     cleaned = 0
     try:
@@ -618,7 +619,7 @@ async def cleanup_temp_files(context):
                 fp = os.path.join(root, f)
                 try:
                     age_hours = (datetime.now().timestamp() - os.path.getmtime(fp)) / 3600
-                    if age_hours > 1:
+                    if age_hours > 0.5:
                         os.remove(fp)
                         cleaned += 1
                 except:
@@ -628,16 +629,13 @@ async def cleanup_temp_files(context):
     if cleaned:
         logger.info(f"Cleanup: removed {cleaned} stale files")
 
-    # 清理过期 pending_files（超过 1 小时）
+    # 清理过期 pending_files（超过 30 分钟）
     now = time.time()
-    expired = [k for k, v in pending_files.items() if now - v.get("ts", 0) > 3600]
+    expired = [k for k, v in pending_files.items() if now - v.get("ts", 0) > 1800]
     for k in expired:
         pending_files.pop(k, None)
     if expired:
         logger.info(f"Cleanup: removed {len(expired)} expired pending files")
-
-    # 重新登录 AList（保持 token 有效）
-    await alist_login()
 
 
 # ============================================================
@@ -677,10 +675,10 @@ if __name__ == '__main__':
         .read_timeout(3600).write_timeout(300).connect_timeout(60).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("folder", cmd_folder))
-    app.add_handler(CommandHandler("autodel", cmd_autodel))
-    app.add_handler(CommandHandler("cancel", cmd_cancel))
-    app.add_handler(CommandHandler("ping", cmd_ping))
+    app.add_handler(CommandHandler("wenjianjia", cmd_folder))
+    app.add_handler(CommandHandler("zidongshanchu", cmd_autodel))
+    app.add_handler(CommandHandler("quxiao", cmd_cancel))
+    app.add_handler(CommandHandler("zhuangtai", cmd_ping))
     app.add_handler(CallbackQueryHandler(callback_folder, pattern="^folder"))
     app.add_handler(CallbackQueryHandler(callback_upload, pattern="^upload_"))
     app.add_handler(MessageHandler(
@@ -688,10 +686,17 @@ if __name__ == '__main__':
         handle_file
     ))
 
-    job_queue = app.job_queue
-    if job_queue:
-        job_queue.run_repeating(cleanup_temp_files, interval=3600, first=60)
-        logger.info("⏰ 定时清理已启用（每小时）")
+    # 注册中文命令菜单
+    from telegram import BotCommand
+    async def post_init(application):
+        await application.bot.set_my_commands([
+            BotCommand("start", "显示帮助"),
+            BotCommand("wenjianjia", "选择上传文件夹"),
+            BotCommand("zidongshanchu", "开关自动删除消息"),
+            BotCommand("quxiao", "取消当前上传"),
+            BotCommand("zhuangtai", "检查连接状态"),
+        ])
+    app.post_init = post_init
 
     logger.info(f"🤖 Super Bot v4.0 is running... (concurrency={CONCURRENT_UPLOADS})")
     app.run_polling()
