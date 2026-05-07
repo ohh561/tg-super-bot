@@ -18,93 +18,134 @@ A Telegram bot that automatically transfers files to cloud storage via AList/Ope
 - **自动删除 / Auto Delete** — `/autodel` 上传成功后自动删除原始消息
 - **自动清理 / Auto Cleanup** — 定时清理临时文件和过期任务
 
+## 🏗️ 架构 / Architecture
+
+```
+用户发送文件
+    ↓
+Telegram 云端
+    ↓ (Bot API)
+telegram-bot-api（本地服务器，支持 2GB 大文件）
+    ↓ (文件落盘)
+tg-cloud-bridge（读取本地文件）
+    ↓ (WebDAV)
+AList / OpenList
+    ↓ (302 重定向 / Proxy)
+OneDrive / Google Drive / 其他网盘
+```
+
+> 💡 为什么需要本地 telegram-bot-api？
+> Telegram 官方 Bot API 限制文件大小 20MB。本地部署的 telegram-bot-api 使用 `--local` 模式，文件先下载到磁盘再处理，支持最大 2GB。
+>
+> Why a local telegram-bot-api? The official Telegram Bot API limits file size to 20MB. The local server with `--local` mode saves files to disk first, supporting up to 2GB.
+
 ## 🚀 快速开始 / Quick Start
 
-### 1. 创建 Telegram Bot / Create Telegram Bot
+### 第一步：创建 Telegram Bot / Step 1: Create Telegram Bot
 
-1. 在 Telegram 中找到 [@BotFather](https://t.me/BotFather)，发送 `/newbot`
-2. 按提示设置 bot 名称和用户名
-3. 获取 **Bot Token**（格式如 `123456:ABC-DEF...`）
+1. 打开 Telegram，搜索 [@BotFather](https://t.me/BotFather)
+2. 发送 `/newbot`
+3. 按提示设置 bot 显示名称（如 `TG Cloud Bridge`）
+4. 按提示设置 bot 用户名（如 `tg_cloud_bridge_bot`，必须以 `bot` 结尾）
+5. BotFather 会回复一个 **Bot Token**，格式如 `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`
+6. **保存这个 Token**，后面要用
 
-> Find [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, follow the prompts, and save the **Bot Token**.
+> Open Telegram, find [@BotFather](https://t.me/BotFather), send `/newbot`, follow the prompts. Save the **Bot Token**.
 
-### 2. 获取你的 Telegram User ID / Get Your User ID
+### 第二步：获取你的 User ID / Step 2: Get Your User ID
 
-在 Telegram 中找到 [@userinfobot](https://t.me/userinfobot)，发送任意消息，它会回复你的 **User ID**。
+1. 搜索 [@userinfobot](https://t.me/userinfobot)
+2. 发送任意消息
+3. 它会回复你的 **User ID**（纯数字，如 `123456789`）
+4. **保存这个 ID**，这是允许使用 bot 的唯一用户
 
-> Find [@userinfobot](https://t.me/userinfobot), send any message, and it replies with your **User ID**.
+> Find [@userinfobot](https://t.me/userinfobot), send any message. Save your **User ID**.
 
-### 3. 获取 Telegram API 凭据 / Get Telegram API Credentials
+### 第三步：获取 Telegram API 凭据 / Step 3: Get Telegram API Credentials
 
-本地 Bot API Server 需要 API ID 和 API Hash：
+本地 telegram-bot-api 服务器需要 API ID 和 API Hash（这不是 Bot Token，是另一套凭据）：
 
-1. 访问 [my.telegram.org](https://my.telegram.org)
-2. 用手机号登录
-3. 进入 **API development tools**
-4. 创建应用，获取 **App api_id** 和 **App api_hash**
+1. 打开 [my.telegram.org](https://my.telegram.org)
+2. 用你的手机号登录（会收到验证码）
+3. 点击 **API development tools**
+4. 填写 App title（随意，如 `TG Cloud Bridge`）和 Short name（随意，如 `tgcb`）
+5. 点 **Create application**
+6. 页面会显示 **App api_id**（数字）和 **App api_hash**（字符串）
+7. **保存这两个值**
 
-> Visit [my.telegram.org](https://my.telegram.org), log in, go to **API development tools**, create an app, and get **api_id** and **api_hash**.
+> Visit [my.telegram.org](https://my.telegram.org), log in with your phone number, go to **API development tools**, create an app. Save **api_id** and **api_hash**.
 
-### 4. 准备 AList/OpenList / Set Up AList/OpenList
+### 第四步：准备 AList / OpenList / Step 4: Set Up AList/OpenList
 
-你需要一个运行中的 AList 或 OpenList 实例，并配置好存储驱动（如 OneDrive）。
+你需要一个运行中的 AList 或 OpenList 实例，并配置好至少一个存储驱动（如 OneDrive、Google Drive）。
 
-You need a running AList/OpenList instance with a storage driver configured (e.g., OneDrive).
+You need a running AList/OpenList instance with at least one storage driver (e.g., OneDrive, Google Drive).
 
-- [OpenList 安装指南 / Install Guide](https://github.com/OpenListTeam/OpenList#readme)
-- [AList 安装指南 / Install Guide](https://github.com/alist-org/alist#readme)
+安装指南 / Install guides:
+- [OpenList](https://github.com/OpenListTeam/OpenList#readme)（推荐 / Recommended）
+- [AList](https://github.com/alist-org/alist#readme)
 
-记下 AList 的以下信息：
-- API 地址（如 `http://localhost:5244`）
-- WebDAV 地址（如 `http://localhost:5244/dav/Onedrive/`）
-- 用户名和密码
+记录以下信息 / Note down:
+- **API 地址** — 如 `http://your-server:5244`（docker 内部通信用容器名，如 `http://openlist:5244`）
+- **WebDAV 地址** — 如 `http://your-server:5244/dav/你的存储路径/`
+- **用户名和密码**
 
-### 5. 克隆项目 / Clone
+### 第五步：配置 / Step 5: Configure
 
 ```bash
 git clone https://github.com/ohh561/tg-cloud-bridge.git
 cd tg-cloud-bridge
-```
-
-### 6. 配置环境变量 / Configure
-
-```bash
 cp .env.example .env
 vim .env
 ```
 
-填写以下内容 / Fill in the following:
+填写 .env / Fill in .env:
 
 ```env
-# Telegram Bot
-BOT_TOKEN=123456:ABC-DEF...          # 步骤 1 获取 / From step 1
-ALLOWED_USER_ID=123456789            # 步骤 2 获取 / From step 2
-TELEGRAM_API_ID=12345                # 步骤 3 获取 / From step 3
-TELEGRAM_API_HASH=abcdef1234567890   # 步骤 3 获取 / From step 3
+# === 第一步获取 / From Step 1 ===
+BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 
-# AList / OpenList（步骤 4 获取 / From step 4）
+# === 第二步获取 / From Step 2 ===
+ALLOWED_USER_ID=123456789
+
+# === 第三步获取 / From Step 3 ===
+TELEGRAM_API_ID=12345
+TELEGRAM_API_HASH=abcdef1234567890abcdef1234567890
+
+# === 第四步获取 / From Step 4 ===
 ALIST_WEBDAV_CRYPT=http://openlist:5244/dav/PrivateVideo/
 ALIST_WEBDAV_DIRECT=http://openlist:5244/dav/Onedrive/
 ALIST_API_URL=http://openlist:5244
 ALIST_USER=admin
 ALIST_PASS=your_password
 
-# 可选：公网地址（用于生成下载链接）
-# Optional: public URL for share link generation
+# === 可选：公网地址（用于生成下载链接）===
+# === Optional: public URL for share links ===
 # PUBLIC_URL=https://openlist.example.com
 ```
 
-### 7. 启动服务 / Start
+> ⚠️ **重要：** `ALIST_WEBDAV_CRYPT` 和 `ALIST_WEBDAV_DIRECT` 的路径必须是 AList 中已存在的目录。如果还没有，先在 AList Web UI 中创建。
+>
+> **Important:** The WebDAV paths must exist in AList. Create them in the AList Web UI first if needed.
+
+### 第六步：启动 / Step 6: Start
 
 ```bash
 docker compose up -d
 ```
 
-### 8. 验证 / Verify
+这会启动两个容器 / This starts two containers:
+- **telegram-bot-api** — 本地 Telegram Bot API 服务器（接收文件）
+- **tg-cloud-bridge** — 文件处理机器人（上传到网盘）
 
-向你的 Bot 发送任意文件，如果弹出上传模式按钮，说明部署成功。
+### 第七步：验证 / Step 7: Verify
 
-Send any file to your bot. If upload mode buttons appear, deployment is successful.
+1. 在 Telegram 中找到你的 bot（用第一步设置的用户名搜索）
+2. 发送 `/start`，bot 应该回复帮助信息
+3. 发送一个文件，bot 应该弹出上传模式按钮
+4. 如果没有反应，检查日志：`docker logs tg-super-bot --tail 20`
+
+> Find your bot on Telegram (search the username from Step 1). Send `/start`, then send a file. If no response, check logs: `docker logs tg-super-bot --tail 20`
 
 ## ⚙️ 配置说明 / Configuration Reference
 
@@ -120,10 +161,6 @@ Send any file to your bot. If upload mode buttons appear, deployment is successf
 | `ALIST_USER` | ✅ | 用户名 / Username | `admin` |
 | `ALIST_PASS` | ✅ | 密码 / Password | `password` |
 | `PUBLIC_URL` | ❌ | 公网地址（生成下载链接用）/ Public URL for share links | `https://openlist.example.com` |
-
-> 💡 `PUBLIC_URL` 为可选配置。设置后，上传完成会显示「获取下载链接」按钮。
->
-> `PUBLIC_URL` is optional. When set, a "Get Download Link" button appears after upload.
 
 ## 📁 目录结构 / Directory Structure
 
@@ -184,19 +221,23 @@ MAX_RETRIES = 3              # 重试次数 / Retry attempts
 CONCURRENT_UPLOADS = 3       # 并发上传数 / Concurrent uploads
 ```
 
-## 🏗️ 架构 / Architecture
+## 🐛 故障排除 / Troubleshooting
 
+**Bot 没有反应 / Bot not responding:**
+```bash
+docker logs tg-super-bot --tail 20
+docker logs telegram-bot-api --tail 20
 ```
-User → Telegram → telegram-bot-api (local, --local mode, 2GB limit)
-                        ↓
-                  File saved to disk
-                        ↓
-                  tg-cloud-bridge reads file
-                        ↓
-                  Uploads to AList/OpenList (WebDAV)
-                        ↓
-                  Cloud Storage (OneDrive / GDrive / etc.)
+
+**telegram-bot-api 崩溃（Signal 6）/ telegram-bot-api crash:**
+```bash
+docker exec telegram-bot-api rm -f /var/lib/telegram-bot-api/*/td.binlog
+docker restart telegram-bot-api
 ```
+
+**大文件上传超时 / Large file upload timeout:**
+确保 `telegram-bot-api` 使用 `--local` 模式（docker-compose.yml 中已配置 `TELEGRAM_LOCAL: "true"`）。
+Ensure `telegram-bot-api` uses `--local` mode (already configured in docker-compose.yml).
 
 ## 📄 License
 
