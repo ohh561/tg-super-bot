@@ -540,14 +540,31 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 TG Super Bot v4.0\n\n"
         "发送文件即可上传到 AList\n\n"
-        "命令：\n"
-        "/start - 显示帮助\n"
-        "/wenjianjia - 选择上传文件夹\n"
-        "/zidongshanchu - 开关自动删除消息\n"
-        "/quxiao - 取消当前上传\n"
-        "/zhuangtai - 检查连接状态\n"
+        "命令（直接发送中文即可）：\n"
+        "帮助 - 显示帮助\n"
+        "文件夹 - 选择上传文件夹\n"
+        "自动删除 - 开关自动删除消息\n"
+        "取消 - 取消当前上传\n"
+        "状态 - 检查连接状态\n"
         f"\n📂 当前上传路径: {current_folder}"
     )
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理中文关键词命令"""
+    if update.effective_user.id != ALLOWED_USER_ID:
+        return
+    text = update.message.text.strip()
+    if text in ("帮助", "help"):
+        await cmd_start(update, context)
+    elif text in ("文件夹", "文件夹选择"):
+        await cmd_folder(update, context)
+    elif text in ("自动删除", "自动清理"):
+        await cmd_autodel(update, context)
+    elif text in ("取消", "取消上传"):
+        await cmd_cancel(update, context)
+    elif text in ("状态", "ping"):
+        await cmd_ping(update, context)
+
 
 async def cmd_autodel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ALLOWED_USER_ID:
@@ -675,28 +692,13 @@ if __name__ == '__main__':
         .read_timeout(3600).write_timeout(300).connect_timeout(60).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("wenjianjia", cmd_folder))
-    app.add_handler(CommandHandler("zidongshanchu", cmd_autodel))
-    app.add_handler(CommandHandler("quxiao", cmd_cancel))
-    app.add_handler(CommandHandler("zhuangtai", cmd_ping))
     app.add_handler(CallbackQueryHandler(callback_folder, pattern="^folder"))
     app.add_handler(CallbackQueryHandler(callback_upload, pattern="^upload_"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(
         filters.Document.ALL | filters.VIDEO | filters.AUDIO | filters.PHOTO,
         handle_file
     ))
-
-    # 注册中文命令菜单
-    from telegram import BotCommand
-    async def post_init(application):
-        await application.bot.set_my_commands([
-            BotCommand("start", "显示帮助"),
-            BotCommand("wenjianjia", "选择上传文件夹"),
-            BotCommand("zidongshanchu", "开关自动删除消息"),
-            BotCommand("quxiao", "取消当前上传"),
-            BotCommand("zhuangtai", "检查连接状态"),
-        ])
-    app.post_init = post_init
 
     logger.info(f"🤖 Super Bot v4.0 is running... (concurrency={CONCURRENT_UPLOADS})")
     app.run_polling()
