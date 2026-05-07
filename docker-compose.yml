@@ -25,6 +25,7 @@ services:
       ALIST_WEBDAV_DIRECT: ${ALIST_WEBDAV_DIRECT}
       ALIST_USER: ${ALIST_USER}
       ALIST_PASS: ${ALIST_PASS}
+      ALIST_API_URL: ${ALIST_API_URL:-http://openlist:5244}
     volumes:
       - telegram-bot-api-data:/var/lib/telegram-bot-api
     depends_on:

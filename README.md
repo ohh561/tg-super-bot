@@ -1,17 +1,19 @@
 # 🤖 TG Super Bot
 
-Telegram 文件上传机器人，支持流式上传、并发传输、混淆/直传双模式。
+Telegram 文件上传机器人，支持流式上传、并发传输、混淆/直传双模式、文件夹选择。
 
 ## ✨ 功能
 
 - **流式上传** — 边下载边上传，不占用磁盘空间
 - **并发传输** — 同时处理多个文件（默认 3 个）
 - **双模式上传** — 🔒混淆（Crypt 文件名加密）/ 📤直传（OneDrive 原始文件名）
+- **文件夹选择** — `/folder` 浏览 AList 目录，设置默认上传路径
 - **按钮选择** — 发送文件后直接弹出模式选择按钮
 - **自动分类** — 直传模式自动按 文件类型（视频/音频/图片/文件）分类存放
 - **进度显示** — 下载和上传双进度条
 - **失败重试** — 流式失败自动回退磁盘模式，最多重试 3 次
-- **自动清理** — 可选上传完成后自动删除消息
+- **取消上传** — `/cancel` 取消正在进行的上传
+- **自动清理** — 定时清理临时文件和过期任务
 
 ## 📦 依赖
 
@@ -48,6 +50,7 @@ docker-compose up -d
 | `ALLOWED_USER_ID` | 允许使用的用户 ID | `123456789` |
 | `ALIST_WEBDAV_CRYPT` | 混淆模式 WebDAV 地址 | `http://openlist:5244/dav/PrivateVideo/` |
 | `ALIST_WEBDAV_DIRECT` | 直传模式 WebDAV 地址 | `http://openlist:5244/dav/Onedrive/` |
+| `ALIST_API_URL` | AList API 地址（用于文件夹浏览） | `http://openlist:5244` |
 | `ALIST_USER` | Alist/OpenList 用户名 | `admin` |
 | `ALIST_PASS` | Alist/OpenList 密码 | `password` |
 
@@ -69,12 +72,16 @@ OneDrive/telegram/
 └── 文件/YYYY-MM-DD/
 ```
 
+> 💡 使用 `/folder` 命令可以自定义直传模式的目标文件夹
+
 ## 🎮 命令
 
 | 命令 | 说明 |
 |------|------|
 | `/start` | 显示帮助 |
+| `/folder` | 选择上传文件夹（浏览 AList 目录） |
 | `/autodel` | 开关自动删除消息 |
+| `/cancel` | 取消当前上传 |
 | `/ping` | 检查连接状态 |
 
 ## 🔧 自定义
@@ -82,7 +89,6 @@ OneDrive/telegram/
 修改 `bot.py` 中的配置：
 
 ```python
-MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 最大文件大小
 MAX_RETRIES = 3                          # 重试次数
 CONCURRENT_UPLOADS = 3                   # 并发上传数
 STREAM_CHUNK_SIZE = 4 * 1024 * 1024      # 流式块大小
